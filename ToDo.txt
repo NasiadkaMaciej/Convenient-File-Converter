@@ -1,0 +1,15 @@
+Make terminal look more like a terminal
+Add more formats and ensure frontend-backend compatibility
+Implement slide-out for terminal
+User-side conversion?
+Display upload progress
+Display conversion progress
+Display download progress
+Validate file types before upload
+Add tests
+Clean up files on connection loss
+Check and improve security
+Improve responsiveness
+Add more animations
+Support multiple file uploads with different formats.
+Add favicon 
