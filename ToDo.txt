@@ -13,3 +13,4 @@ Improve responsiveness
 Add more animations
 Support multiple file uploads with different formats.
 Add favicon 
+Client-side conversion? 

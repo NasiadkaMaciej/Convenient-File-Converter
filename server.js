@@ -7,32 +7,26 @@ const ffmpeg = require('fluent-ffmpeg');
 const archiver = require('archiver');
 const sanitize = require('sanitize-filename');
 const EventEmitter = require('events');
+const gm = require('gm').subClass({ imageMagick: true });
 
 const app = express();
 const port = 3000;
 
-const basePath = __dirname;  // Use __dirname for absolute paths
-
+const basePath = __dirname;
 // Store files in memory
 const uploadDir = '/tmp/uploads/';
 const convertedDir = '/tmp/converted/';
 
 const ensureDirectoriesExist = () => {
-	if (!fs.existsSync(uploadDir))
-		fs.mkdirSync(uploadDir, { recursive: true });
-	if (!fs.existsSync(convertedDir))
-		fs.mkdirSync(convertedDir, { recursive: true });
+	if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+	if (!fs.existsSync(convertedDir)) fs.mkdirSync(convertedDir, { recursive: true });
 };
 
 ensureDirectoriesExist();
 
 const storage = multer.diskStorage({
-	destination: (req, file, cb) => {
-		cb(null, uploadDir);
-	},
-	filename: (req, file, cb) => {
-		cb(null, sanitize(file.originalname));
-	}
+	destination: (req, file, cb) => cb(null, uploadDir),
+	filename: (req, file, cb) => cb(null, sanitize(file.originalname))
 });
 
 const upload = multer({
@@ -43,8 +37,8 @@ const upload = multer({
 	fileFilter: (req, file, cb) => {
 		const mimeType = file.mimetype;
 		const allowedMimeTypes = [
-			"image/png", "image/jpeg", "image/jpeg", "image/gif", "image/bmp", "image/tiff", "image/webp", "image/svg+xml", 
-			"audio/mpeg", "audio/wav", "audio/ogg", "audio/flac", "audio/aac", "audio/mp4", 
+			"image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff", "image/webp", "image/svg", "image/heic", "image/heif", "image/avif",
+			"audio/mpeg", "audio/wav", "audio/ogg", "audio/flac", "audio/aac", "audio/mp4",
 			"video/mp4", "video/x-msvideo", "video/x-matroska", "video/quicktime", "video/x-flv", "video/webm"
 		];
 		if (!allowedMimeTypes.includes(mimeType)) {
@@ -66,12 +60,9 @@ app.get('/events', (req, res) => {
 	res.flushHeaders();
 
 	// Heartbeat to keep connection alive
-	const heartbeatInterval = setInterval(() => {
-		res.write('data: {}\n\n');
-	}, 10000);
+	const heartbeatInterval = setInterval(() => res.write('data: {}\n\n'), 10000);
 
 	progressEmitter.on('progress', (message) => {
-		console.log(`Server log: ${message}`);
 		res.write(`data: ${JSON.stringify({ message })}\n\n`);
 	});
 
@@ -96,20 +87,34 @@ app.post('/convert', upload.array('files'), async (req, res) => {
 	progressEmitter.emit('progress', 'Files uploaded successfully.');
 
 	try {
-		// Start conversion
 		for (const file of req.files) {
 			const originalFileName = path.basename(file.originalname, path.extname(file.originalname));
+			const originalFormat = path.extname(file.originalname).slice(1).toLowerCase();
 			const outputFileName = `${originalFileName}.${format}`;
 			const outputFilePath = path.join(convertedDir, outputFileName);
 			convertedFiles.push({ path: outputFilePath, name: outputFileName });
-			cleanupFiles.push(file.path);  // Track original files for cleanup
+			cleanupFiles.push(file.path);
 
 			progressEmitter.emit('progress', `Starting conversion for ${file.originalname}...`);
 
-			// Convert based on category
 			if (category === 'images') {
-				await sharp(file.path).toFormat(format).toFile(outputFilePath);
-				progressEmitter.emit('progress', `Image ${file.originalname} converted to ${format}.`);
+				progressEmitter.emit('progress', `Converting ${file.originalname} to ${format}...`);
+				const gmFormats = ['bmp', 'heif', 'heic'] // Use GM for some formats
+				if (gmFormats.includes(originalFormat) || gmFormats.includes(format)) {
+					await new Promise((resolve, reject) => {
+						progressEmitter.emit('progress', ` file ${file.originalname} to ${format}...`);
+						gm(file.path)
+							.setFormat(format)
+							.write(outputFilePath, (err) => {
+								if (err) reject(err);
+								else resolve();
+							});
+					});
+					progressEmitter.emit('progress', `Image ${file.originalname} converted to ${format}.`);
+				} else {
+					await sharp(file.path).toFormat(format).toFile(outputFilePath);
+					progressEmitter.emit('progress', `Image ${file.originalname} converted to ${format}.`);
+				}
 			} else if (category === 'sound' || category === 'videos') {
 				await new Promise((resolve, reject) => {
 					progressEmitter.emit('progress', `Converting ${file.originalname} to ${format}...`);
@@ -164,8 +169,7 @@ app.post('/convert', upload.array('files'), async (req, res) => {
 			progressEmitter.emit('progress', 'ZIP file ready for download.');
 			res.download(zipFilePath, zipFileName, (err) => {
 				if (err) console.error('Error sending zip file:', err);
-				fs.unlinkSync(zipFilePath); // Delete zip file after download
-				// Delete each converted file
+				fs.unlinkSync(zipFilePath);
 				convertedFiles.forEach(({ path }) => {
 					fs.unlinkSync(path);
 					progressEmitter.emit('progress', `Converted file deleted: ${path}`);

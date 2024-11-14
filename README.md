@@ -25,7 +25,7 @@ It is designed to be intuitive, simple and require minimal input from user.
 ## FAQ
 
 ### What file types can I convert?
-- **Images**: PNG, JPG, JPEG, GIF, BMP, TIFF, WebP, SVG
+- **Images**: PNG, JPG, JPEG, GIF, BMP, TIFF, WebP, SVG, HEIC, HEIF, AVIF
 - **Sound**: MP3, WAV, OGG, FLAC, AAC, M4A
 - **Videos**: MP4, AVI, MKV, MOV, FLV, WebM
 

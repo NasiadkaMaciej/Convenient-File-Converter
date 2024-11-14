@@ -1,7 +1,7 @@
 let selectedCategory = "images";
 
 const categoryFormats = {
-	images: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "svg"],
+	images: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "svg", "heic", "heif", "avif"],
 	sound: ["mp3", "wav", "ogg", "flac", "aac", "m4a"],
 	videos: ["mp4", "avi", "mkv", "mov", "flv", "webm"],
 };
