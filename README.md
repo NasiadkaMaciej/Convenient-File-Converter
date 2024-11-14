@@ -22,8 +22,6 @@ It is designed to be intuitive, simple and require minimal input from user.
 | ------------------------------------------------- | ------------------------------------------------- |
 | ![](https://nasiadka.pl/projects/CFC/default.png) | ![](https://nasiadka.pl/projects/CFC/terminal.png) |
 
-Welcoming screen and conversion
-
 ## FAQ
 
 ### What file types can I convert?
@@ -41,4 +39,4 @@ Welcoming screen and conversion
 - Yes! You can upload and convert multiple files simultaneously, provided the total size does not exceed the 512MB limit.
 
 ### How can I help improve the tool?
-- If you have suggestions for fixes, features, or improvements, feel free to open an issue or submit a pull request on GitHb or contact me directly.
+If you experience some bugs, have suggestions for fixes, features, or improvements, feel free to [contact me](https://nasiadka.pl), open an issue or submit a pull request.
