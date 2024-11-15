@@ -9,7 +9,7 @@ It is designed to be intuitive, simple and require minimal input from user.
 - **Drag & Drop or File Upload**: Easily upload files by dragging them into the browser or selecting them from the file dialog.
 - **Progress Tracking**: Monitor the conversion process through a real-time progress log.
 - **Data Security**: Files are processed and removed after download to ensure your privacy.
-- **Batch Conversion**: Upload and convert multiple files at once (with limit of 512MB).
+- **Batch Conversion**: Upload and convert multiple files at once.
   
 ## How does it work?
 
@@ -30,13 +30,13 @@ It is designed to be intuitive, simple and require minimal input from user.
 - **Videos**: MP4, AVI, MKV, MOV, FLV, WebM
 
 ### What is the maximum file size?
-- The maximum file size allowed is 512MB. Files exceeding this size will be rejected.
+- The maximum file size allowed is 256MB. Files exceeding this size will be rejected.
 
 ### How is my data handled?
 - Your data is processed temporarily in memory. Once the conversion is completed, files are deleted automatically after the download.
 
 ### Can I convert multiple files at once?
-- Yes! You can upload and convert multiple files simultaneously, provided the total size does not exceed the 512MB limit.
+- Yes! You can upload and convert multiple files simultaneously, provided the total size does not exceed the 256MB limit.
 
 ### How can I help improve the tool?
 If you experience some bugs, have suggestions for fixes, features, or improvements, feel free to [contact me](https://nasiadka.pl), open an issue or submit a pull request.

@@ -29,21 +29,18 @@ function displayMessage(message) {
 	terminalMessages.appendChild(messageElement);
 
 	Array.from(terminalMessages.children).forEach((line, index) => {
-		line.classList.toggle(
-			"faded",
-			index !== terminalMessages.children.length - 1
-		);
+		line.classList.toggle("faded",index !== terminalMessages.children.length - 1);
 	});
 
 	terminalMessages.scrollTop = terminalMessages.scrollHeight;
 }
 
+const sessionId =  Math.random().toString(36).substring(2, 10);
 // Initialize EventSource
 function connectToSSE() {
 	// Prevent creating multiple connections
 	if (eventSourceOpen) return;
-
-	eventSource = new EventSource("/events");
+    eventSource = new EventSource(`/events/${sessionId}`);
 
 	eventSource.onmessage = (event) => {
 		const data = JSON.parse(event.data);
@@ -108,30 +105,31 @@ dropArea.addEventListener("drop", (event) => {
 async function handleFileUpload(files) {
 	if (files.length === 0) return;
 
-	const maxSize = 512 * 1024 * 1024; // 512MB
+	const maxSize = 256 * 1024 * 1024;
 	let totalSize = 0;
 
 	showTerminal();
 
 	for (let file of files) {
 		if (file.size > maxSize) {
-			displayMessage(`${file.name} exceeds the size limit of 512MB.`);
+			displayMessage(`${file.name} exceeds the size limit of 256MB.`);
 			return;
 		}
 		totalSize += file.size;
 	}
 	if (totalSize > maxSize) {
-		displayMessage("Total size of selected files exceeds the 512MB limit.");
+		displayMessage("Total size of selected files exceeds the 256MB limit.");
 		return;
 	}
 
-	displayMessage("Sending files for conversion...");
+	displayMessage("Uploading files to the server...");
 
 	const formData = new FormData();
 	Array.from(files).forEach((file) => formData.append("files", file));
 	formData.append("category", selectedCategory);
 	formData.append("format", formatSelect.value);
-
+    formData.append("sessionId", sessionId);
+	
 	try {
 		const response = await fetch("/convert", {
 			method: "POST",
@@ -148,7 +146,7 @@ async function handleFileUpload(files) {
 
 		const blob = await response.blob();
 		if (blob.size > 0) {
-			displayMessage("Conversion complete! Preparing download...");
+			displayMessage("Conversion complete!");
 			const downloadLink = document.createElement("a");
 			downloadLink.href = URL.createObjectURL(blob);
 			downloadLink.download = zipFileName;
