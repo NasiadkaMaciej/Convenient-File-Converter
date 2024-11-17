@@ -195,7 +195,16 @@ select {
   &.faded {
     color: rgba($accent-color, 0.4);
   }
+
+  &.error {
+	color: red;
+  }
+  
+  &.faded.error{
+	color: rgba(red, 0.4);
+  }
 }
+
 
 @keyframes slideDown {
   to {

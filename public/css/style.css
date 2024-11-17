@@ -252,6 +252,14 @@ select {
   color: rgba(0, 255, 0, 0.4);
 }
 
+.terminal-line.error {
+  color: red;
+}
+
+.terminal-line.faded.error {
+  color: rgba(255, 0, 0, 0.4);
+}
+
 @-webkit-keyframes slideDown {
   to {
     opacity: 1;

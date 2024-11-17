@@ -10,199 +10,200 @@ const EventEmitter = require("events");
 const gm = require("gm").subClass({ imageMagick: true });
 
 const app = express();
+app.set('trust proxy', true);
+// If you want to serve static content via node, uncomment this:
+// app.use(express.static('public'));
 const port = 3000;
 
-const basePath = __dirname;
-// Store files in memory
 const uploadDir = "/tmp/uploads/";
 const convertedDir = "/tmp/converted/";
 
-const ensureDirectoriesExist = () => {
-	if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-	if (!fs.existsSync(convertedDir)) fs.mkdirSync(convertedDir, { recursive: true });
+const MAX_FILE_SIZE_MB = 256;
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
+
+const allowedMimeTypes = {
+	images: [
+		"image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff",
+		"image/webp", "image/svg", "image/heic", "image/heif", "image/avif",
+	],
+	sounds: [
+		"audio/mpeg", "audio/wav", "audio/ogg", "audio/flac",
+		"audio/aac", "audio/mp4",
+	],
+	videos: [
+		"video/mp4", "video/x-msvideo", "video/x-matroska",
+		"video/quicktime", "video/x-flv", "video/webm",
+	],
 };
 
+const ensureDirectoriesExist = () => {
+	[uploadDir, convertedDir].forEach(dir => {
+		if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+	});
+};
 ensureDirectoriesExist();
 
 const storage = multer.diskStorage({
-	destination: (req, file, cb) => cb(null, uploadDir),
-	filename: (req, file, cb) => cb(null, sanitize(file.originalname))
+	destination: (_, __, cb) => cb(null, uploadDir),
+	filename: (_, file, cb) => cb(null, sanitize(file.originalname)),
 });
 
 const upload = multer({
-	storage: storage,
-	limits: {
-		fileSize: 256 * 1024 * 1024,
-	},
-	fileFilter: (req, file, cb) => {
+	storage,
+	limits: { fileSize: MAX_FILE_SIZE },
+	fileFilter: (_, file, cb) => {
 		const mimeType = file.mimetype;
-		const allowedMimeTypes = [
-			"image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff", "image/webp", "image/svg", "image/heic", "image/heif", "image/avif",
-			"audio/mpeg", "audio/wav", "audio/ogg", "audio/flac", "audio/aac", "audio/mp4",
-			"video/mp4", "video/x-msvideo", "video/x-matroska", "video/quicktime", "video/x-flv", "video/webm"
-		];
-		if (!allowedMimeTypes.includes(mimeType))
-			return cb(new Error("Invalid file type."));
-		cb(null, true);
-	}
+		const isAllowed = Object.values(allowedMimeTypes).flat().includes(mimeType);
+		cb(isAllowed ? null : new Error("Unsupported file type."), isAllowed);
+	},
 });
 
-const userEmitters = {};
+const userEmitters = new Map();
+
+const emitProgressMessage = (sessionId, message) => {
+	const emitter = userEmitters.get(sessionId);
+	if (emitter) emitter.emit("progress", message);
+	console.log(`[Session ${sessionId}]: ${message}`);
+};
+
 app.get("/events/:sessionId", (req, res) => {
-	const sessionId = req.params.sessionId;
-	if (!userEmitters[sessionId]) userEmitters[sessionId] = new EventEmitter();
-	const userEmitter = userEmitters[sessionId];
+	const { sessionId } = req.params;
+	if (!userEmitters.has(sessionId)) userEmitters.set(sessionId, new EventEmitter());
+	const emitter = userEmitters.get(sessionId);
 
 	res.setHeader("Content-Type", "text/event-stream");
 	res.setHeader("Cache-Control", "no-cache");
 	res.setHeader("Connection", "keep-alive");
 	res.flushHeaders();
 
-	const heartbeatInterval = setInterval(() => res.write("data: {}\n\n"), 20000);
+	const heartbeatInterval = setInterval(() => res.write(": keep-alive\n\n"), 15000);
 
-	userEmitter.on("progress", (message) => {
-		console.log(message);
+	emitter.on("progress", (message) => {
 		res.write(`data: ${JSON.stringify({ message })}\n\n`);
 	});
 
 	req.on("close", () => {
 		clearInterval(heartbeatInterval);
-		userEmitter.removeAllListeners("progress");
+		emitter.removeAllListeners("progress");
+		userEmitters.delete(sessionId);
 	});
 });
 
-function emitProgressMessage(sessionId, message) {
-	const userEmitter = userEmitters[sessionId];
-	if (userEmitter) userEmitter.emit("progress", message);
-}
 const convertFile = async (file, format, category, sessionId) => {
-	const originalFileName = path.basename(file.originalname, path.extname(file.originalname));
 	const originalFormat = path.extname(file.originalname).slice(1).toLowerCase();
-	const outputFileName = `${originalFileName}.${format}`;
-	const outputFilePath = path.join(convertedDir, outputFileName);
+	const outputFilePath = path.join(convertedDir, `${path.basename(file.originalname, path.extname(file.originalname))}.${format}`);
 
-	emitProgressMessage(sessionId, `Starting conversion for ${file.originalname}...`);
-
-	if (category === "images") {
-		emitProgressMessage(sessionId, `Converting ${file.originalname} to ${format}...`);
-		const gmFormats = ["bmp", "heif", "heic"]; // Use GM for some formats
-		if (gmFormats.includes(originalFormat) || gmFormats.includes(format)) {
-			await new Promise((resolve, reject) => {
-				gm(file.path)
-					.setFormat(format)
-					.write(outputFilePath, (err) => {
+	try {
+		if (category === "images") {
+			const gmFormats = ["bmp", "heif", "heic"]; // Use GM for some formats
+			if (gmFormats.includes(originalFormat) || gmFormats.includes(format)) {
+				await new Promise((resolve, reject) => {
+					gm(file.path).setFormat(format).write(outputFilePath, (err) => {
 						if (err) reject(err);
 						else resolve();
 					});
+				});
+			} else
+				await sharp(file.path).toFormat(format).toFile(outputFilePath);
+		} else if (["sounds", "videos"].includes(category)) {
+			await new Promise((resolve, reject) => {
+				emitProgressMessage(sessionId, `Converting "${file.originalname}" to ${format}...`);
+				ffmpeg(file.path)
+					.output(outputFilePath)
+					.format(format)
+					.on("end", resolve)
+					.on("error", reject)
+					.run();
 			});
-		} else
-			await sharp(file.path).toFormat(format).toFile(outputFilePath);
-	} else if (category === "sound" || category === "videos") {
-		await new Promise((resolve, reject) => {
-			emitProgressMessage(sessionId, `Converting ${file.originalname} to ${format}...`);
-			ffmpeg(file.path)
-				.output(outputFilePath)
-				.format(format)
-				.on("end", resolve)
-				.on("error", reject)
-				.run();
-		});
-	}
-	emitProgressMessage(sessionId, `File ${file.originalname} converted to ${format}.`);
-	return { path: outputFilePath, name: outputFileName };
-};
+		}
+		else
+			throw new Error("Invalid category");
 
+		emitProgressMessage(sessionId, `File converted "${file.originalname}" to ${format}.`);
+		return { path: outputFilePath, name: path.basename(outputFilePath) };
+
+	} catch (error) {
+		throw new Error(`Failed to convert "${file.originalname}": ${error.message}`);
+	}
+};
 
 app.post("/convert", upload.array("files"), async (req, res) => {
 	const { category, format, sessionId } = req.body;
-	if (!req.files || req.files.length === 0) return res.status(400).send("No files uploaded.");
+
+	if (!req.files?.length) return res.status(400).send("No files uploaded.");
+	if (!["images", "sounds", "videos"].includes(category)) return res.status(400).send("Invalid category.");
+	if (!format) return res.status(400).send("No format specified.");
 
 	ensureDirectoriesExist();
 
+	const cleanupPaths = [];
 	let convertedFiles = [];
-	let cleanupFiles = [];
+
 	emitProgressMessage(sessionId, "Files uploaded successfully.");
 
 	try {
-		const convertPromises = req.files.map((file) =>
-			convertFile(file, format, category, sessionId).then((convertedFile) => {
-				convertedFiles.push(convertedFile);
-				cleanupFiles.push(file.path);
+		convertedFiles = await Promise.all(
+			req.files.map(async (file) => {
+				cleanupPaths.push({ path: file.path, name: file.filename });
+				return convertFile(file, format, category, sessionId);
 			})
 		);
-		await Promise.all(convertPromises);
 
-		cleanupFiles.forEach((filePath) => {
-			try {
-				fs.unlinkSync(filePath);
-				emitProgressMessage(sessionId, `Original file deleted after conversion`);
-			} catch (err) {
-				if (err.code !== "ENOENT")
-					console.error("Error deleting original file:", err);
-			}
-		});
-
-		// Return files
+		let downloadPath, downloadName;
 		if (convertedFiles.length === 1) {
-			const { path: convertedFilePath, name: originalFileName } = convertedFiles[0];
-			emitProgressMessage(sessionId, `Preparing ${originalFileName} for download...`);
-			return res.download(convertedFilePath, originalFileName, (err) => {
-				if (err) console.error("Error sending file:", err);
-				fs.unlinkSync(convertedFilePath);
-				emitProgressMessage(sessionId, `Download complete`);
-				emitProgressMessage(sessionId, `Converted file ${originalFileName} deleted.`);
-			});
+			const file = convertedFiles[0];
+			downloadPath = file.path;
+			downloadName = file.name;
+		} else {
+			const zipPath = path.join(convertedDir, "converted_files.zip");
+			const archive = archiver("zip", { zlib: { level: 9 } });
+			const output = fs.createWriteStream(zipPath);
+
+			archive.pipe(output);
+			convertedFiles.forEach(file => archive.file(file.path, { name: file.name }));
+			await archive.finalize();
+
+			emitProgressMessage(sessionId, `Created archive "${zipPath}".`);
+			downloadPath = zipPath;
+			downloadName = "converted_files.zip";
+			convertedFiles.push({ path: zipPath, name: downloadName })
 		}
 
-		// Zip multiple files
-		const zipFileName = "converted_files.zip";
-		const zipFilePath = path.join(convertedDir, zipFileName);
-		const archive = archiver("zip", { zlib: { level: 9 } });
-		const output = fs.createWriteStream(zipFilePath);
-
-		archive.pipe(output);
-		for (const { path: filePath, name: originalFileName } of convertedFiles)
-			archive.file(filePath, { name: originalFileName });
-
-		await archive.finalize();
-
-		emitProgressMessage(sessionId, `All files added to ZIP archive.`);
-
-		output.on("close", () => {
-			emitProgressMessage(sessionId, `ZIP file ready for download.`);
-			res.download(zipFilePath, zipFileName, (err) => {
-				if (err) console.error("Error sending zip file:", err);
-				fs.unlinkSync(zipFilePath);
-				convertedFiles.forEach(({ path }) => {
-					fs.unlinkSync(path);
-					emitProgressMessage(sessionId, `Converted file deleted: ${path}`);
-				});
-				emitProgressMessage(sessionId, `All files cleaned up after download`);
-			});
-		});
-
-		output.on("error", (err) => {
-			console.error("Error with zip output stream:", err);
-			emitProgressMessage(sessionId, `Error creating ZIP file`);
-			res.status(500).send("Error creating zip file.");
-		});
-	} catch (error) {
-		console.error("Error during file conversion:", error);
-		emitProgressMessage(sessionId, `Error during file conversion`);
-		res.status(500).send("Error during file conversion.");
-	} finally {
-		// Cleanup all files after conversion regardless of success or failure
-		cleanupFiles.forEach((filePath) => {
-			try {
-				fs.unlinkSync(filePath);
-				emitProgressMessage(sessionId, `Original file deleted after conversion (final cleanup)`);
-			} catch (err) {
-				if (err.code !== "ENOENT")
-					console.error("Error deleting original file during final cleanup:", err);
+		emitProgressMessage(sessionId, "Conversion completed. Preparing for download.");
+		res.download(downloadPath, downloadName, (err) => {
+			if (err) {
+				emitProgressMessage(sessionId, `Error while sending file for download: ${err.message}`);
+				return res.status(500).send(`Error while sending file for download: ${err.message}`);
 			}
+			else
+				emitProgressMessage(sessionId, `File "${downloadName}" sent for download.`);
+
+			if (fs.existsSync(downloadPath)) fs.unlinkSync(downloadPath);
+			emitProgressMessage(sessionId, `Removed converted file: "${downloadName}"`);
+
+			cleanupPaths.forEach((file) => {
+				if (fs.existsSync(file.path)) {
+					fs.unlinkSync(file.path);
+					emitProgressMessage(sessionId, `Removed original file: "${file.name}"`);
+				}
+			});
+
+			convertedFiles.forEach((file) => {
+				if (fs.existsSync(file.path)) {
+					fs.unlinkSync(file.path);
+					emitProgressMessage(sessionId, `Removed converted file: "${file.name}"`);
+				}
+			});
+
+			emitProgressMessage(sessionId, "Cleanup complete.");
+			userEmitters.delete(sessionId);
 		});
 	}
-});
+	catch (error) {
+		emitProgressMessage(sessionId, `Error: ${error.message}`);
+		return res.status(500).send("An error occurred during file conversion.");
+	}
+})
 
 app.listen(port, () => {
 	console.log(`Server running on http://localhost:${port}`);

@@ -1,176 +1,186 @@
+const MAX_FILE_SIZE = 256 * 1024 * 1024; // 256MB
+const MAX_TOTAL_SIZE = 256 * 1024 * 1024; // 256MB
+const sessionId = Math.random().toString(36).substring(2, 10);
+
+// States
 let selectedCategory = "images";
+let eventSource = null;
+let isUploading = false;
 
-const categoryFormats = {
-	images: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "svg", "heic", "heif", "avif"],
-	sound: ["mp3", "wav", "ogg", "flac", "aac", "m4a"],
-	videos: ["mp4", "avi", "mkv", "mov", "flv", "webm"],
-};
-
+// DOM Elements
 const formatSelect = document.getElementById("formatSelect");
 const fileInput = document.getElementById("fileInput");
 const dropArea = document.getElementById("dropArea");
 const menuButtons = document.querySelectorAll(".menu button");
 const terminalMessages = document.getElementById("terminalMessages");
 const terminal = document.querySelector(".terminal");
+const helpBtn = document.getElementById("helpBtn");
+const helpBox = document.getElementById("helpBox");
 
-// EventSource setup for streaming messages
-let eventSource = null;
-let eventSourceOpen = false;
+// Allowed formats and MIME types
+const categoryFormats = {
+	images: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "svg", "heic", "heif", "avif"],
+	sounds: ["mp3", "wav", "ogg", "flac", "aac", "m4a"],
+	videos: ["mp4", "avi", "mkv", "mov", "flv", "webm"],
+};
 
-// Display a new message in the terminal
-function displayMessage(message) {
-	// Skip heartbeat messages
-	if (message === undefined)return;
+const allowedMimeTypes = {
+	images: ["image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff", "image/webp", "image/svg", "image/heic", "image/heif", "image/avif"],
+	sounds: ["audio/mpeg", "audio/wav", "audio/ogg", "audio/flac", "audio/aac", "audio/mp4"],
+	videos: ["video/mp4", "video/x-msvideo", "video/x-matroska", "video/quicktime", "video/x-flv", "video/webm"],
+};
+
+// Utility Functions
+function sanitizeFilename(filename) {
+	return filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+}
+
+function displayMessage(message, isError = false) {
+	if (!message) return;
 
 	const messageElement = document.createElement("div");
 	messageElement.classList.add("terminal-line");
+	if (isError) messageElement.classList.add("error");
 	messageElement.textContent = message;
-	const terminalMessages = document.getElementById("terminalMessages");
+
 	terminalMessages.appendChild(messageElement);
-
-	Array.from(terminalMessages.children).forEach((line, index) => {
-		line.classList.toggle("faded",index !== terminalMessages.children.length - 1);
-	});
-
 	terminalMessages.scrollTop = terminalMessages.scrollHeight;
 }
 
-const sessionId =  Math.random().toString(36).substring(2, 10);
-// Initialize EventSource
 function connectToSSE() {
-	// Prevent creating multiple connections
-	if (eventSourceOpen) return;
-    eventSource = new EventSource(`/events/${sessionId}`);
+	if (eventSource) return;
 
+	eventSource = new EventSource(`/events/${sessionId}`);
 	eventSource.onmessage = (event) => {
 		const data = JSON.parse(event.data);
 		displayMessage(data.message);
 	};
 
-	eventSource.onerror = (error) => {
-		displayMessage(`Error in SSE connection: ${error.message}\n${error.stack}`);
-		setTimeout(connectToSSE, 5000); // Attempt reconnect after 5 seconds
+	eventSource.onerror = () => {
+		displayMessage(`Error in SSE connection: ${error.message}\n${error.stack}. Reconnecting...`);
+		eventSource.close();
+		eventSource = null;
+		setTimeout(connectToSSE, 5000); // Retry connection after 5 seconds
 	};
-
-	eventSource.onopen = () => (eventSourceOpen = true);
-	eventSource.onclose = () => (eventSourceOpen = false);
 }
 
-connectToSSE();
+function closeEventSource() {
+	if (eventSource) {
+		eventSource.close();
+		eventSource = null;
+	}
+}
 
-// Update format options when category changes
 function updateFormatOptions() {
 	formatSelect.innerHTML = categoryFormats[selectedCategory]
-		.map(
-			(format) => `<option value="${format}">${format.toUpperCase()}</option>`
-		)
+		.map((format) => `<option value="${format}">${format.toUpperCase()}</option>`)
 		.join("");
 }
 
-// Handle category button clicks
-menuButtons.forEach((button) => {
-	button.addEventListener("click", () => {
-		selectedCategory = button.dataset.category;
-		menuButtons.forEach((btn) => btn.classList.remove("active"));
-		button.classList.add("active");
-		updateFormatOptions();
-	});
-});
-
-// Ffile selection (drag-and-drop and file input)
-fileInput.addEventListener("change", () => handleFileUpload(fileInput.files));
-dropArea.addEventListener("click", (event) => {
-	event.stopPropagation();
-	fileInput.click();
-});
-// Prevent opening file dialog when clicking format select
-formatSelect.addEventListener("click", (event) => {
-	event.stopPropagation();
-});
-
-// Drag-and-drop animations
-dropArea.addEventListener("dragover", (event) => {
-	event.preventDefault();
-	dropArea.classList.add("hover");
-});
-dropArea.addEventListener("dragleave", () => {
-	dropArea.classList.remove("hover");
-});
-dropArea.addEventListener("drop", (event) => {
-	event.preventDefault();
-	dropArea.classList.remove("hover");
-	handleFileUpload(event.dataTransfer.files);
-});
-
-async function handleFileUpload(files) {
-	if (files.length === 0) return;
-
-	const maxSize = 256 * 1024 * 1024;
+// File Validation
+function validateFiles(files) {
 	let totalSize = 0;
+	for (let file of files) {
+		if (!allowedMimeTypes[selectedCategory].includes(file.type)) {
+			const matchedCategory = Object.keys(allowedMimeTypes).find((category) =>
+				allowedMimeTypes[category].includes(file.type)
+			);
+			showTerminal();
+			displayMessage(
+				`${file.name} is a ${matchedCategory || "unsupported"} file. Please select the correct format.`,
+				true
+			);
+			return false;
+		}
+
+		if (file.size > MAX_FILE_SIZE) {
+			displayMessage(`${file.name} exceeds the size limit of 256MB.`, true);
+			return false;
+		}
+
+		totalSize += file.size;
+		if (totalSize > MAX_TOTAL_SIZE) {
+			displayMessage("Total size of selected files exceeds the 256MB limit.", true);
+			return false;
+		}
+	}
+	return true;
+}
+
+// File Upload
+async function uploadFiles(files) {
+	if (isUploading) return;
+	isUploading = true;
 
 	showTerminal();
-
-	for (let file of files) {
-		if (file.size > maxSize) {
-			displayMessage(`${file.name} exceeds the size limit of 256MB.`);
-			return;
-		}
-		totalSize += file.size;
-	}
-	if (totalSize > maxSize) {
-		displayMessage("Total size of selected files exceeds the 256MB limit.");
-		return;
-	}
-
-	displayMessage("Uploading files to the server...");
+	connectToSSE();
+	displayMessage("Uploading files...");
 
 	const formData = new FormData();
 	Array.from(files).forEach((file) => formData.append("files", file));
 	formData.append("category", selectedCategory);
 	formData.append("format", formatSelect.value);
-    formData.append("sessionId", sessionId);
-	
+	formData.append("sessionId", sessionId);
+
 	try {
-		const response = await fetch("/convert", {
-			method: "POST",
-			body: formData,
-		});
+		const response = await fetch("/convert", { method: "POST", body: formData });
 
-		if (!response.ok)
-			throw new Error("Failed to convert files. Please try again later.");
-
-		const contentDisposition = response.headers.get("Content-Disposition");
-		let zipFileName = contentDisposition
-			? /filename="(.+)"/.exec(contentDisposition)?.[1] || "converted_files.zip"
-			: "converted_files.zip";
+		if (!response.ok) throw new Error("Conversion failed. Please try again.");
 
 		const blob = await response.blob();
-		if (blob.size > 0) {
-			displayMessage("Conversion complete!");
-			const downloadLink = document.createElement("a");
-			downloadLink.href = URL.createObjectURL(blob);
-			downloadLink.download = zipFileName;
-			document.body.appendChild(downloadLink);
-			downloadLink.click();
-			document.body.removeChild(downloadLink);
-		} else throw new Error("The received file is empty or invalid.");
+		const contentDisposition = response.headers.get("Content-Disposition");
+		const filename =
+			contentDisposition?.match(/filename="(.+)"/)?.[1] || "converted_files.zip";
+
+		displayMessage("Conversion complete!");
+		const link = document.createElement("a");
+		link.href = URL.createObjectURL(blob);
+		link.download = sanitizeFilename(filename);
+		link.click();
 	} catch (error) {
-		displayMessage(
-			`Error during file conversion: ${error.message}\n${error.stack}`
-		);
+		displayMessage(`Error: ${error.message}`, true);
+	} finally {
+		isUploading = false;
+		closeEventSource();
 	}
 }
 
+// Event Listeners
+menuButtons.forEach((button) =>
+	button.addEventListener("click", () => {
+		selectedCategory = button.dataset.category;
+		menuButtons.forEach((btn) => btn.classList.remove("active"));
+		button.classList.add("active");
+		updateFormatOptions();
+	})
+);
+
+fileInput.addEventListener("change", () => {
+	if (validateFiles(fileInput.files)) uploadFiles(fileInput.files);
+});
+
+dropArea.addEventListener("dragover", (e) => {
+	e.preventDefault();
+	dropArea.classList.add("hover");
+});
+
+dropArea.addEventListener("dragleave", () => dropArea.classList.remove("hover"));
+
+dropArea.addEventListener("drop", (e) => {
+	e.preventDefault();
+	dropArea.classList.remove("hover");
+	if (validateFiles(e.dataTransfer.files)) uploadFiles(e.dataTransfer.files);
+});
+
+helpBtn.addEventListener("click", () => helpBox.classList.toggle("open"));
+
+formatSelect.addEventListener("click", (e) => e.stopPropagation());
+
+// Initialize
+updateFormatOptions();
+
 function showTerminal() {
-	const terminal = document.querySelector(".terminal");
 	terminal.classList.remove("hidden");
 	terminal.classList.add("show");
 	document.querySelector(".container").classList.add("show-terminal");
 }
-
-// Help
-const helpBtn = document.getElementById("helpBtn");
-const helpBox = document.getElementById("helpBox");
-helpBtn.addEventListener("click", () => helpBox.classList.toggle("open"));
-
-updateFormatOptions();
