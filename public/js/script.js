@@ -31,9 +31,7 @@ const allowedMimeTypes = {
 };
 
 // Utility Functions
-function sanitizeFilename(filename) {
-	return filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-}
+const sanitizeFilename = (filename) => filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
 
 function displayMessage(message, isError = false) {
 	if (!message) return;
@@ -42,24 +40,24 @@ function displayMessage(message, isError = false) {
 	messageElement.classList.add("terminal-line");
 	if (isError) messageElement.classList.add("error");
 	messageElement.textContent = message;
-
 	terminalMessages.appendChild(messageElement);
 	terminalMessages.scrollTop = terminalMessages.scrollHeight;
 }
 
+function showTerminal() {
+	terminal.classList.remove("hidden");
+	terminal.classList.add("show");
+}
+
+
 function connectToSSE() {
 	if (eventSource) return;
-
 	eventSource = new EventSource(`/events/${sessionId}`);
-	eventSource.onmessage = (event) => {
-		const data = JSON.parse(event.data);
-		displayMessage(data.message);
-	};
+	eventSource.onmessage = (event) => displayMessage(JSON.parse(event.data).message);
 
 	eventSource.onerror = () => {
 		displayMessage(`Error in SSE connection: ${error.message}\n${error.stack}. Reconnecting...`);
-		eventSource.close();
-		eventSource = null;
+		closeEventSource()
 		setTimeout(connectToSSE, 5000); // Retry connection after 5 seconds
 	};
 }
@@ -80,16 +78,9 @@ function updateFormatOptions() {
 // File Validation
 function validateFiles(files) {
 	let totalSize = 0;
-	for (let file of files) {
+	for (const file of files) {
 		if (!allowedMimeTypes[selectedCategory].includes(file.type)) {
-			const matchedCategory = Object.keys(allowedMimeTypes).find((category) =>
-				allowedMimeTypes[category].includes(file.type)
-			);
-			showTerminal();
-			displayMessage(
-				`${file.name} is a ${matchedCategory || "unsupported"} file. Please select the correct format.`,
-				true
-			);
+			displayMessage(`${file.name} has an unsupported format. Please select the correct category.`, true);
 			return false;
 		}
 
@@ -124,13 +115,11 @@ async function uploadFiles(files) {
 
 	try {
 		const response = await fetch("/convert", { method: "POST", body: formData });
-
 		if (!response.ok) throw new Error("Conversion failed. Please try again.");
 
 		const blob = await response.blob();
 		const contentDisposition = response.headers.get("Content-Disposition");
-		const filename =
-			contentDisposition?.match(/filename="(.+)"/)?.[1] || "converted_files.zip";
+		const filename = contentDisposition?.match(/filename="(.+)"/)?.[1] || "converted_files.zip";
 
 		displayMessage("Conversion complete!");
 		const link = document.createElement("a");
@@ -176,11 +165,4 @@ helpBtn.addEventListener("click", () => helpBox.classList.toggle("open"));
 
 formatSelect.addEventListener("click", (e) => e.stopPropagation());
 
-// Initialize
 updateFormatOptions();
-
-function showTerminal() {
-	terminal.classList.remove("hidden");
-	terminal.classList.add("show");
-	document.querySelector(".container").classList.add("show-terminal");
-}
