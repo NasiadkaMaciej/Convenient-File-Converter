@@ -20,7 +20,7 @@ It is designed to be intuitive, simple and require minimal input from user.
 
 | Welcome screen | File upload |
 | ------------------------------------------------- | ------------------------------------------------- |
-| ![](https://nasiadka.pl/projects/CFC/default.png) | ![](https://nasiadka.pl/projects/CFC/terminal.png) |
+| ![](https://nasiadka.pl/project/file-converter/default.png) | ![](https://nasiadka.pl/project/file-converter/terminal.png) |
 
 ## FAQ
 

@@ -1,9 +1,6 @@
-Make terminal look more like a terminal
 Implement slide-out for terminal
 User-side conversion?
 Display upload, conversion and download progress in percentages
 Add tests
-Check and improve security
-Improve responsiveness
 Add more animations
 Class for files? Containing path (with randomized name), name and format

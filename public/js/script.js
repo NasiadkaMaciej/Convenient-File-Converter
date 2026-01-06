@@ -30,12 +30,14 @@ const allowedMimeTypes = {
 	videos: ["video/mp4", "video/x-msvideo", "video/x-matroska", "video/quicktime", "video/x-flv", "video/webm"],
 };
 
-// Utility Functions
-const sanitizeFilename = (filename) => filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+// Utility: Sanitize filename for download
+function sanitizeFilename(filename) {
+	return filename.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+}
 
+// Utility: Display a message in the terminal area
 function displayMessage(message, isError = false) {
-	if (!message) return;
-
+	if (!terminalMessages || !message) return;
 	const messageElement = document.createElement("div");
 	messageElement.classList.add("terminal-line");
 	if (isError) messageElement.classList.add("error");
@@ -44,24 +46,42 @@ function displayMessage(message, isError = false) {
 	terminalMessages.scrollTop = terminalMessages.scrollHeight;
 }
 
+// Utility: Show the terminal area
 function showTerminal() {
-	terminal.classList.remove("hidden");
-	terminal.classList.add("show");
+	if (terminal) {
+		terminal.classList.remove("hidden");
+		terminal.classList.add("show");
+	}
 }
 
-
+// Connect to server-sent events for progress updates
 function connectToSSE() {
 	if (eventSource) return;
-	eventSource = new EventSource(`/events/${sessionId}`);
-	eventSource.onmessage = (event) => displayMessage(JSON.parse(event.data).message);
-
-	eventSource.onerror = () => {
-		displayMessage(`Error in SSE connection: ${error.message}\n${error.stack}. Reconnecting...`);
-		closeEventSource()
-		setTimeout(connectToSSE, 5000); // Retry connection after 5 seconds
-	};
+	try {
+		eventSource = new EventSource(`/events/${sessionId}`);
+		eventSource.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				displayMessage(data.message);
+			} catch (e) {
+				displayMessage("Malformed progress message.", true);
+			}
+		};
+		eventSource.onerror = (error) => {
+			let errorMsg = "Error in SSE connection.";
+			if (error && error.message) errorMsg += " " + error.message;
+			if (error && error.stack) errorMsg += "\n" + error.stack;
+			errorMsg += " Reconnecting...";
+			displayMessage(errorMsg, true);
+			closeEventSource();
+			setTimeout(connectToSSE, 5000); // Retry connection after 5 seconds
+		};
+	} catch (e) {
+		displayMessage("Failed to connect to progress stream.", true);
+	}
 }
 
+// Close the SSE connection
 function closeEventSource() {
 	if (eventSource) {
 		eventSource.close();
@@ -69,26 +89,26 @@ function closeEventSource() {
 	}
 }
 
+// Update the format dropdown based on selected category
 function updateFormatOptions() {
+	if (!formatSelect) return;
 	formatSelect.innerHTML = categoryFormats[selectedCategory]
 		.map((format) => `<option value="${format}">${format.toUpperCase()}</option>`)
 		.join("");
 }
 
-// File Validation
+// Validate files before upload
 function validateFiles(files) {
 	let totalSize = 0;
 	for (const file of files) {
 		if (!allowedMimeTypes[selectedCategory].includes(file.type)) {
-			displayMessage(`${file.name} has an unsupported format. Please select the correct category.`, true);
+			displayMessage(file.name + " has an unsupported format. Please select the correct category.", true);
 			return false;
 		}
-
 		if (file.size > MAX_FILE_SIZE) {
-			displayMessage(`${file.name} exceeds the size limit of 256MB.`, true);
+			displayMessage(file.name + " exceeds the size limit of 256MB.", true);
 			return false;
 		}
-
 		totalSize += file.size;
 		if (totalSize > MAX_TOTAL_SIZE) {
 			displayMessage("Total size of selected files exceeds the 256MB limit.", true);
@@ -98,7 +118,7 @@ function validateFiles(files) {
 	return true;
 }
 
-// File Upload
+// Upload files to the server
 async function uploadFiles(files) {
 	if (isUploading) return;
 	isUploading = true;
@@ -115,59 +135,88 @@ async function uploadFiles(files) {
 
 	try {
 		const response = await fetch("/convert", { method: "POST", body: formData });
-		if (!response.ok) throw new Error("Conversion failed. Please try again.");
+		if (!response.ok) {
+			let errorText = "Conversion failed. Please try again.";
+			try {
+				errorText = await response.text();
+			} catch {}
+			throw new Error(errorText);
+		}
 
 		const blob = await response.blob();
 		const contentDisposition = response.headers.get("Content-Disposition");
-		const filename = contentDisposition?.match(/filename="(.+)"/)?.[1] || "converted_files.zip";
+		let filename = "converted_files.zip";
+		if (contentDisposition) {
+			const match = contentDisposition.match(/filename="(.+)"/);
+			if (match && match[1]) filename = match[1];
+		}
 
 		displayMessage("Conversion complete!");
 		const link = document.createElement("a");
 		link.href = URL.createObjectURL(blob);
 		link.download = sanitizeFilename(filename);
+		document.body.appendChild(link);
 		link.click();
+		setTimeout(() => {
+			URL.revokeObjectURL(link.href);
+			document.body.removeChild(link);
+		}, 1000);
 	} catch (error) {
-		displayMessage(`Error: ${error.message}`, true);
+		displayMessage("Error: " + (error && error.message ? error.message : error), true);
 	} finally {
 		isUploading = false;
 		closeEventSource();
 	}
 }
 
-// Event Listeners
-menuButtons.forEach((button) =>
-	button.addEventListener("click", () => {
-		selectedCategory = button.dataset.category;
-		menuButtons.forEach((btn) => btn.classList.remove("active"));
-		button.classList.add("active");
-		updateFormatOptions();
-	})
-);
+// --- Event Listeners ---
 
-fileInput.addEventListener("change", () => {
-	if (validateFiles(fileInput.files)) uploadFiles(fileInput.files);
-});
+// Category menu buttons
+if (menuButtons && menuButtons.length) {
+	menuButtons.forEach((button) =>
+		button.addEventListener("click", () => {
+			selectedCategory = button.dataset.category;
+			menuButtons.forEach((btn) => btn.classList.remove("active"));
+			button.classList.add("active");
+			updateFormatOptions();
+		})
+	);
+}
 
-dropArea.addEventListener("dragover", (e) => {
-	e.preventDefault();
-	dropArea.classList.add("hover");
-});
+// File input change
+if (fileInput) {
+	fileInput.addEventListener("change", () => {
+		if (validateFiles(fileInput.files)) uploadFiles(fileInput.files);
+	});
+}
 
-dropArea.addEventListener("dragleave", () => dropArea.classList.remove("hover"));
+// Drag and drop area
+if (dropArea) {
+	dropArea.addEventListener("dragover", (e) => {
+		e.preventDefault();
+		dropArea.classList.add("hover");
+	});
+	dropArea.addEventListener("dragleave", () => dropArea.classList.remove("hover"));
+	dropArea.addEventListener("drop", (e) => {
+		e.preventDefault();
+		dropArea.classList.remove("hover");
+		if (validateFiles(e.dataTransfer.files)) uploadFiles(e.dataTransfer.files);
+	});
+	// Allow clicking the drop area to open the file picker
+	dropArea.addEventListener("click", () => {
+		if (fileInput) fileInput.click();
+	});
+}
 
-dropArea.addEventListener("drop", (e) => {
-	e.preventDefault();
-	dropArea.classList.remove("hover");
-	if (validateFiles(e.dataTransfer.files)) uploadFiles(e.dataTransfer.files);
-});
+// Help button
+if (helpBtn && helpBox) {
+	helpBtn.addEventListener("click", () => helpBox.classList.toggle("open"));
+}
 
-// Allow clicking the drop area to open the file picker
-dropArea.addEventListener("click", () => {
-	fileInput.click();
-});
+// Prevent dropdown from closing on click
+if (formatSelect) {
+	formatSelect.addEventListener("click", (e) => e.stopPropagation());
+}
 
-helpBtn.addEventListener("click", () => helpBox.classList.toggle("open"));
-
-formatSelect.addEventListener("click", (e) => e.stopPropagation());
-
+// Initialize format options on load
 updateFormatOptions();
