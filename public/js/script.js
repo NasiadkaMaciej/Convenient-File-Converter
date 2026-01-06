@@ -20,8 +20,8 @@ const helpBox = document.getElementById("helpBox");
 // Allowed formats and MIME types
 const categoryFormats = {
 	images: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "svg", "heic", "heif", "avif"],
-	sounds: ["mp3", "wav", "ogg", "flac", "aac", "m4a"],
-	videos: ["mp4", "avi", "mkv", "mov", "flv", "webm"],
+	sounds: ["mp3", "wav", "ogg", "flac"],
+	videos: ["mp4", "avi", "mkv", "mov", "webm"],
 };
 
 const allowedMimeTypes = {
@@ -159,6 +159,11 @@ dropArea.addEventListener("drop", (e) => {
 	e.preventDefault();
 	dropArea.classList.remove("hover");
 	if (validateFiles(e.dataTransfer.files)) uploadFiles(e.dataTransfer.files);
+});
+
+// Allow clicking the drop area to open the file picker
+dropArea.addEventListener("click", () => {
+	fileInput.click();
 });
 
 helpBtn.addEventListener("click", () => helpBox.classList.toggle("open"));

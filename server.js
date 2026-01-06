@@ -42,6 +42,7 @@ const createFileMetadata = (file, uploadDir) => {
 	return { originalName: file.originalname, randomizedPath, format: extension };
 };
 
+ensureDirectoriesExist();
 const storage = multer.diskStorage({
 	destination: (_, __, cb) => cb(null, UPLOAD_DIR),
 	filename: (_, file, cb) => cb(null, sanitize(file.originalname)),
@@ -98,6 +99,7 @@ app.get("/events/:sessionId", (req, res) => {
 
 const convertFile = async (sessionId, fileMetadata, format, category) => {
 	const { originalName, randomizedPath } = fileMetadata;
+	ensureDirectoriesExist();
 	const outputPath = generateRandomPath(CONVERTED_DIR, format);
 
 	emitProgressMessage(
@@ -120,6 +122,7 @@ const convertFile = async (sessionId, fileMetadata, format, category) => {
 				ffmpeg(randomizedPath)
 					.output(outputPath)
 					.format(format)
+					//.outputOptions(['-c:v h264_nvenc'])
 					.on("end", resolve)
 					.on("error", reject)
 					.run();
@@ -153,6 +156,7 @@ app.post("/convert", upload.array("files"), async (req, res) => {
 	try {
 		msg("Processing files...");
 		req.files.forEach((file) => {
+			ensureDirectoriesExist();
 			const fileMetadata = createFileMetadata(file, UPLOAD_DIR);
 			fs.renameSync(file.path, fileMetadata.randomizedPath);
 			msg(`File "${fileMetadata.originalName}" is temporarily stored as "${fileMetadata.randomizedPath}".`);
