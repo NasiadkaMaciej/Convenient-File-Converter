@@ -1,3 +1,4 @@
+@use "sass:color";
 $primary-color: #4caf50;
 $terminal-color: #1e1e1e;
 $accent-color: #00ff00;
@@ -113,18 +114,18 @@ body {
     min-width: 120px;
 
     &:hover {
-      background-color: darken($primary-color, 5%);
+      background-color: color.scale($primary-color, $lightness: -5%);
       transform: translateY(-2px);
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
     }
 
     &:active {
-      background-color: darken($primary-color, 10%);
+      background-color: color.scale($primary-color, $lightness: -10%);
       transform: translateY(2px);
     }
 
     &.active {
-      background-color: darken($primary-color, 15%);
+      background-color: color.scale($primary-color, $lightness: -15%);
     }
   }
 }
@@ -213,7 +214,11 @@ select {
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 800px) {
+  .container {
+    flex-direction: column;
+    align-items: center;
+  }
   .box,
   .terminal {
     width: 100%;
