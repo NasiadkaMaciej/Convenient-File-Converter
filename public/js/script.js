@@ -1,6 +1,14 @@
-const MAX_FILE_SIZE = 256 * 1024 * 1024; // 256MB
-const MAX_TOTAL_SIZE = 256 * 1024 * 1024; // 256MB
-const sessionId = Math.random().toString(36).substring(2, 10);
+// Limits and format lists are loaded from the server (/api/config) so the
+// client always stays in sync with the backend. Sensible fallbacks are used
+// if the request fails.
+let MAX_FILE_SIZE = 256 * 1024 * 1024; // 256MB
+let MAX_TOTAL_SIZE = 512 * 1024 * 1024;
+let MAX_FILES = 20;
+
+const sessionId =
+	(window.crypto && typeof crypto.randomUUID === "function"
+		? crypto.randomUUID()
+		: Date.now().toString(36) + Math.random().toString(36).slice(2));
 
 // States
 let selectedCategory = "images";
@@ -17,18 +25,37 @@ const terminal = document.querySelector(".terminal");
 const helpBtn = document.getElementById("helpBtn");
 const helpBox = document.getElementById("helpBox");
 
-// Allowed formats and MIME types
-const categoryFormats = {
-	images: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "svg", "heic", "heif", "avif"],
+// Allowed formats and MIME types (populated from /api/config).
+let categoryFormats = {
+	images: ["png", "jpg", "jpeg", "gif", "bmp", "tiff", "webp", "avif"],
 	sounds: ["mp3", "wav", "ogg", "flac"],
 	videos: ["mp4", "avi", "mkv", "mov", "webm"],
 };
 
-const allowedMimeTypes = {
-	images: ["image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff", "image/webp", "image/svg", "image/heic", "image/heif", "image/avif"],
-	sounds: ["audio/mpeg", "audio/wav", "audio/ogg", "audio/flac", "audio/aac", "audio/mp4"],
+let allowedMimeTypes = {
+	images: ["image/png", "image/jpeg", "image/gif", "image/bmp", "image/tiff", "image/webp", "image/avif"],
+	sounds: ["audio/mpeg", "audio/wav", "audio/x-wav", "audio/ogg", "audio/flac", "audio/x-flac", "audio/aac", "audio/mp4"],
 	videos: ["video/mp4", "video/x-msvideo", "video/x-matroska", "video/quicktime", "video/x-flv", "video/webm"],
 };
+
+// Fetch the authoritative format/limit configuration from the server.
+async function loadConfig() {
+	try {
+		const response = await fetch("/api/config");
+		if (!response.ok) return;
+		const config = await response.json();
+		if (config.categoryFormats) categoryFormats = config.categoryFormats;
+		if (config.allowedMimeTypes) allowedMimeTypes = config.allowedMimeTypes;
+		if (config.limits) {
+			MAX_FILE_SIZE = config.limits.maxFileSize ?? MAX_FILE_SIZE;
+			MAX_TOTAL_SIZE = config.limits.maxTotalSize ?? MAX_TOTAL_SIZE;
+			MAX_FILES = config.limits.maxFiles ?? MAX_FILES;
+		}
+		updateFormatOptions();
+	} catch {
+		/* keep fallback defaults */
+	}
+}
 
 // Utility: Sanitize filename for download
 function sanitizeFilename(filename) {
@@ -99,6 +126,10 @@ function updateFormatOptions() {
 
 // Validate files before upload
 function validateFiles(files) {
+	if (files.length > MAX_FILES) {
+		displayMessage(`You can convert at most ${MAX_FILES} files at once.`, true);
+		return false;
+	}
 	let totalSize = 0;
 	for (const file of files) {
 		if (!allowedMimeTypes[selectedCategory].includes(file.type)) {
@@ -106,12 +137,12 @@ function validateFiles(files) {
 			return false;
 		}
 		if (file.size > MAX_FILE_SIZE) {
-			displayMessage(file.name + " exceeds the size limit of 256MB.", true);
+			displayMessage(`${file.name} exceeds the size limit of ${Math.round(MAX_FILE_SIZE / (1024 * 1024))}MB.`, true);
 			return false;
 		}
 		totalSize += file.size;
 		if (totalSize > MAX_TOTAL_SIZE) {
-			displayMessage("Total size of selected files exceeds the 256MB limit.", true);
+			displayMessage(`Total size of selected files exceeds the ${Math.round(MAX_TOTAL_SIZE / (1024 * 1024))}MB limit.`, true);
 			return false;
 		}
 	}
@@ -218,5 +249,6 @@ if (formatSelect) {
 	formatSelect.addEventListener("click", (e) => e.stopPropagation());
 }
 
-// Initialize format options on load
+// Initialize format options on load, then sync with the server.
 updateFormatOptions();
+loadConfig();
